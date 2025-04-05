@@ -245,3 +245,203 @@ public class Load3DModel extends JFrame implements GLEventListener {
         }
     }
     
+    /**
+     * Clear the current model
+     */
+    public void clearModel() {
+        currentModel = null;
+        setTitle("3D Model Viewer");
+    }
+    
+    // GLEventListener implementation
+    @Override
+    public void init(GLAutoDrawable drawable) {
+        gl = drawable.getGL().getGL2();
+        
+        // Set up OpenGL
+        gl.glClearColor(0.2f, 0.2f, 0.3f, 1.0f);
+        gl.glEnable(GL2.GL_DEPTH_TEST);
+        gl.glDepthFunc(GL2.GL_LESS);
+        
+        // Enable lighting
+        gl.glEnable(GL2.GL_LIGHTING);
+        gl.glEnable(GL2.GL_LIGHT0);
+        
+        // Set light position
+        float[] lightPos = { 0.0f, 5.0f, 5.0f, 1.0f };
+        gl.glLightfv(GL2.GL_LIGHT0, GL2.GL_POSITION, lightPos, 0);
+        
+        // Enable color material for simple coloring
+        gl.glEnable(GL2.GL_COLOR_MATERIAL);
+        gl.glColorMaterial(GL2.GL_FRONT_AND_BACK, GL2.GL_AMBIENT_AND_DIFFUSE);
+    }
+    
+    @Override
+    public void display(GLAutoDrawable drawable) {
+        gl = drawable.getGL().getGL2();
+        
+        // Clear the buffers
+        gl.glClear(GL2.GL_COLOR_BUFFER_BIT | GL2.GL_DEPTH_BUFFER_BIT);
+        
+        // Set up camera
+        gl.glMatrixMode(GL2.GL_MODELVIEW);
+        gl.glLoadIdentity();
+        
+        // Set camera position
+        glu.gluLookAt(0, 0, zoom, 0, 0, 0, 0, 1, 0);
+        
+        // Apply view rotation
+        gl.glRotatef(rotX, 1.0f, 0.0f, 0.0f);
+        gl.glRotatef(rotY, 0.0f, 1.0f, 0.0f);
+        
+        // Render the model or default grid
+        if (currentModel != null) {
+            renderModel();
+        } else {
+            renderDefaultGrid();
+        }
+    }
+    
+    /**
+     * Render the current 3D model
+     */
+    private void renderModel() {
+        // Set rendering mode
+        if (wireframeMode) {
+            gl.glPolygonMode(GL2.GL_FRONT_AND_BACK, GL2.GL_LINE);
+        } else {
+            gl.glPolygonMode(GL2.GL_FRONT_AND_BACK, GL2.GL_FILL);
+        }
+        
+        // Apply color override if enabled
+        if (colorOverride) {
+            float r = overrideColor.getRed() / 255.0f;
+            float g = overrideColor.getGreen() / 255.0f;
+            float b = overrideColor.getBlue() / 255.0f;
+            gl.glColor3f(r, g, b);
+        }
+        
+        // Render the model
+        currentModel.render(gl, wireframeMode, colorOverride);
+        
+        // Draw coordinate axes for reference
+        drawCoordinateAxes();
+    }
+    
+    /**
+     * Render a default grid when no model is loaded
+     */
+    private void renderDefaultGrid() {
+        gl.glDisable(GL2.GL_LIGHTING);
+        gl.glPolygonMode(GL2.GL_FRONT_AND_BACK, GL2.GL_LINE);
+        gl.glColor3f(0.5f, 0.5f, 0.5f);
+        
+        // Draw a grid for reference
+        gl.glBegin(GL2.GL_LINES);
+        for (float i = -5; i <= 5; i += 1.0f) {
+            gl.glVertex3f(i, 0, -5);
+            gl.glVertex3f(i, 0, 5);
+            
+            gl.glVertex3f(-5, 0, i);
+            gl.glVertex3f(5, 0, i);
+        }
+        gl.glEnd();
+        
+        // Draw coordinate axes
+        drawCoordinateAxes();
+        
+        gl.glEnable(GL2.GL_LIGHTING);
+    }
+    
+    /**
+     * Draw coordinate axes for orientation reference
+     */
+    private void drawCoordinateAxes() {
+        gl.glDisable(GL2.GL_LIGHTING);
+        
+        gl.glBegin(GL2.GL_LINES);
+        // X axis - red
+        gl.glColor3f(1.0f, 0.0f, 0.0f);
+        gl.glVertex3f(0, 0, 0);
+        gl.glVertex3f(2, 0, 0);
+        
+        // Y axis - green
+        gl.glColor3f(0.0f, 1.0f, 0.0f);
+        gl.glVertex3f(0, 0, 0);
+        gl.glVertex3f(0, 2, 0);
+        
+        // Z axis - blue
+        gl.glColor3f(0.0f, 0.0f, 1.0f);
+        gl.glVertex3f(0, 0, 0);
+        gl.glVertex3f(0, 0, 2);
+        gl.glEnd();
+        
+        gl.glEnable(GL2.GL_LIGHTING);
+    }
+    
+    @Override
+    public void reshape(GLAutoDrawable drawable, int x, int y, int width, int height) {
+        gl = drawable.getGL().getGL2();
+        
+        // Update viewport
+        gl.glViewport(0, 0, width, height);
+        
+        // Set projection matrix
+        gl.glMatrixMode(GL2.GL_PROJECTION);
+        gl.glLoadIdentity();
+        
+        // Set perspective
+        float aspect = (float) width / (float) height;
+        glu.gluPerspective(45.0f, aspect, 0.1f, 100.0f);
+        
+        // Switch back to modelview matrix
+        gl.glMatrixMode(GL2.GL_MODELVIEW);
+        gl.glLoadIdentity();
+    }
+    
+    @Override
+    public void dispose(GLAutoDrawable drawable) {
+        // Clean up resources
+        if (animator != null && animator.isAnimating()) {
+            animator.stop();
+        }
+    }
+    
+    /**
+     * Launch the application
+     */
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            Load3DModel viewer = new Load3DModel();
+            
+            // Auto-load a sample model if provided
+            if (args.length > 0) {
+                try {
+                    File modelFile = new File(args[0]);
+                    if (modelFile.exists() && modelFile.getName().toLowerCase().endsWith(".obj")) {
+                        viewer.currentModel = OBJLoader.loadOBJModel(modelFile.getAbsolutePath());
+                        
+                        // Center and scale the model
+                        float[] center = viewer.currentModel.getCenter();
+                        float size = viewer.currentModel.getSize();
+                        
+                        // Apply transform
+                        viewer.currentModel.x = -center[0];
+                        viewer.currentModel.y = -center[1];
+                        viewer.currentModel.z = -center[2];
+                        viewer.currentModel.scale = 2.0f / Math.max(0.1f, size);
+                        
+                        // Update window title
+                        viewer.setTitle("3D Model Viewer - " + modelFile.getName());
+                    }
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(null,
+                        "Error loading model: " + ex.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+                    ex.printStackTrace();
+                }
+            }
+        });
+    }
+} 
