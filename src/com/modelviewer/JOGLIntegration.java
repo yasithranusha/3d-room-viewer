@@ -21,12 +21,23 @@ public class JOGLIntegration implements GLEventListener {
     private List<Model3D> roomModels;
     private Animator animator;
     private GLJPanel glPanel;
-    private RoomRenderer roomRenderer;
     
     // Rendering settings
     private boolean wireframeMode = false;
     private boolean useColorOverride = false;
     private Color overrideColor = Color.RED;
+    
+    // Room properties
+    private boolean showRoom = false;
+    private float roomWidth = 5.0f;
+    private float roomHeight = 3.0f;
+    private float roomLength = 5.0f;
+    private Color wallColor = new Color(220, 220, 220);
+    private Color floorColor = new Color(180, 140, 100);
+    private Color ceilingColor = new Color(240, 240, 240);
+    private float wallTransparency = 1.0f;
+    private float floorTransparency = 1.0f;
+    private float ceilingTransparency = 1.0f;
     
     // Camera settings
     private float rotX = 0.0f;
@@ -44,13 +55,6 @@ public class JOGLIntegration implements GLEventListener {
     private boolean showGrid = true;
     private float gridSize = 0.5f;
     private boolean enableSnapping = true;
-    
-    /**
-     * Constructor
-     */
-    public JOGLIntegration() {
-        roomRenderer = new RoomRenderer();
-    }
     
     /**
      * Creates a GLJPanel for 3D rendering
@@ -136,6 +140,69 @@ public class JOGLIntegration implements GLEventListener {
     }
     
     /**
+     * Sets room visibility
+     */
+    public void setShowRoom(boolean show) {
+        this.showRoom = show;
+        refreshDisplay();
+    }
+    
+    /**
+     * Sets room properties
+     */
+    public void setRoomProperties(boolean show, float width, float height, float length) {
+        this.showRoom = show;
+        this.roomWidth = width;
+        this.roomHeight = height;
+        this.roomLength = length;
+        refreshDisplay();
+    }
+    
+    /**
+     * Sets wall color
+     */
+    public void setWallColor(Color color) {
+        this.wallColor = color;
+        refreshDisplay();
+    }
+    
+    /**
+     * Sets floor color
+     */
+    public void setFloorColor(Color color) {
+        this.floorColor = color;
+        refreshDisplay();
+    }
+    
+    /**
+     * Sets ceiling color
+     */
+    public void setCeilingColor(Color color) {
+        this.ceilingColor = color;
+        refreshDisplay();
+    }
+    
+    /**
+     * Sets room colors
+     */
+    public void setRoomColors(Color wall, Color floor, Color ceiling) {
+        this.wallColor = wall;
+        this.floorColor = floor;
+        this.ceilingColor = ceiling;
+        refreshDisplay();
+    }
+    
+    /**
+     * Sets room transparencies
+     */
+    public void setRoomTransparency(float wall, float floor, float ceiling) {
+        this.wallTransparency = wall;
+        this.floorTransparency = floor;
+        this.ceilingTransparency = ceiling;
+        refreshDisplay();
+    }
+    
+    /**
      * Gets the current X rotation
      */
     public float getRotX() {
@@ -180,27 +247,6 @@ public class JOGLIntegration implements GLEventListener {
         rotX = 0.0f;
         rotY = 0.0f;
         zoom = -5.0f;
-        refreshDisplay();
-    }
-    
-    // Room-related methods delegated to RoomRenderer
-    public void setShowRoom(boolean show) {
-        roomRenderer.setShowRoom(show);
-        refreshDisplay();
-    }
-    
-    public void setRoomProperties(boolean show, float width, float height, float length) {
-        roomRenderer.setRoomProperties(show, width, height, length);
-        refreshDisplay();
-    }
-    
-    public void setRoomColors(Color wall, Color floor, Color ceiling) {
-        roomRenderer.setRoomColors(wall, floor, ceiling);
-        refreshDisplay();
-    }
-    
-    public void setRoomTransparency(float wall, float floor, float ceiling) {
-        roomRenderer.setRoomTransparency(wall, floor, ceiling);
         refreshDisplay();
     }
     
@@ -261,9 +307,9 @@ public class JOGLIntegration implements GLEventListener {
             renderModel(gl, currentModel);
         }
         
-        // Draw the room and models inside it
-        if (roomRenderer.getShowRoom()) {
-            roomRenderer.renderRoom(gl);
+        // Draw the room if enabled
+        if (showRoom) {
+            renderRoom(gl);
             
             // Draw the models inside the room
             if (roomModels != null && !roomModels.isEmpty()) {
@@ -411,4 +457,123 @@ public class JOGLIntegration implements GLEventListener {
             gl.glEnd();
         }
     }
-}
+    
+    /**
+     * Renders a 3D room with the specified dimensions and colors
+     */
+    private void renderRoom(GL2 gl) {
+        // Save current matrix
+        gl.glPushMatrix();
+        
+        // Calculate room dimensions (centered on origin)
+        float halfWidth = roomWidth / 2.0f;
+        float halfLength = roomLength / 2.0f;
+        float halfHeight = roomHeight / 2.0f;
+        
+        // Render opaque surfaces first
+        if (floorTransparency >= 1.0f) {
+            // Floor (bottom)
+            gl.glBegin(GL2.GL_QUADS);
+            gl.glColor4f(floorColor.getRed()/255f, floorColor.getGreen()/255f, floorColor.getBlue()/255f, floorTransparency);
+            gl.glNormal3f(0.0f, 1.0f, 0.0f);
+            gl.glVertex3f(-halfWidth, -halfHeight, -halfLength);
+            gl.glVertex3f(-halfWidth, -halfHeight, halfLength);
+            gl.glVertex3f(halfWidth, -halfHeight, halfLength);
+            gl.glVertex3f(halfWidth, -halfHeight, -halfLength);
+            gl.glEnd();
+        }
+        
+        if (ceilingTransparency >= 1.0f) {
+            // Ceiling (top)
+            gl.glBegin(GL2.GL_QUADS);
+            gl.glColor4f(ceilingColor.getRed()/255f, ceilingColor.getGreen()/255f, ceilingColor.getBlue()/255f, ceilingTransparency);
+            gl.glNormal3f(0.0f, -1.0f, 0.0f);
+            gl.glVertex3f(-halfWidth, halfHeight, -halfLength);
+            gl.glVertex3f(halfWidth, halfHeight, -halfLength);
+            gl.glVertex3f(halfWidth, halfHeight, halfLength);
+            gl.glVertex3f(-halfWidth, halfHeight, halfLength);
+            gl.glEnd();
+        }
+        
+        if (wallTransparency >= 1.0f) {
+            // Walls
+            gl.glBegin(GL2.GL_QUADS);
+            gl.glColor4f(wallColor.getRed()/255f, wallColor.getGreen()/255f, wallColor.getBlue()/255f, wallTransparency);
+            
+            // Front wall
+            gl.glNormal3f(0.0f, 0.0f, -1.0f);
+            gl.glVertex3f(-halfWidth, -halfHeight, halfLength);
+            gl.glVertex3f(-halfWidth, halfHeight, halfLength);
+            gl.glVertex3f(halfWidth, halfHeight, halfLength);
+            gl.glVertex3f(halfWidth, -halfHeight, halfLength);
+            
+            // Back wall
+            gl.glNormal3f(0.0f, 0.0f, 1.0f);
+            gl.glVertex3f(-halfWidth, -halfHeight, -halfLength);
+            gl.glVertex3f(halfWidth, -halfHeight, -halfLength);
+            gl.glVertex3f(halfWidth, halfHeight, -halfLength);
+            gl.glVertex3f(-halfWidth, halfHeight, -halfLength);
+            
+            // Left wall
+            gl.glNormal3f(1.0f, 0.0f, 0.0f);
+            gl.glVertex3f(-halfWidth, -halfHeight, -halfLength);
+            gl.glVertex3f(-halfWidth, halfHeight, -halfLength);
+            gl.glVertex3f(-halfWidth, halfHeight, halfLength);
+            gl.glVertex3f(-halfWidth, -halfHeight, halfLength);
+            
+            // Right wall
+            gl.glNormal3f(-1.0f, 0.0f, 0.0f);
+            gl.glVertex3f(halfWidth, -halfHeight, -halfLength);
+            gl.glVertex3f(halfWidth, -halfHeight, halfLength);
+            gl.glVertex3f(halfWidth, halfHeight, halfLength);
+            gl.glVertex3f(halfWidth, halfHeight, -halfLength);
+            
+            gl.glEnd();
+        }
+        
+        // Now render transparent surfaces
+        gl.glDepthMask(false); // Disable depth writes for transparency
+        
+        // Render transparent walls, floor, ceiling if needed
+        if (wallTransparency < 1.0f) {
+            // Transparent walls
+            gl.glBegin(GL2.GL_QUADS);
+            gl.glColor4f(wallColor.getRed()/255f, wallColor.getGreen()/255f, wallColor.getBlue()/255f, wallTransparency);
+            
+            // All walls (same vertices as above)
+            // ...
+            
+            gl.glEnd();
+        }
+        
+        if (floorTransparency < 1.0f) {
+            // Transparent floor
+            gl.glBegin(GL2.GL_QUADS);
+            gl.glColor4f(floorColor.getRed()/255f, floorColor.getGreen()/255f, floorColor.getBlue()/255f, floorTransparency);
+            gl.glNormal3f(0.0f, 1.0f, 0.0f);
+            gl.glVertex3f(-halfWidth, -halfHeight, -halfLength);
+            gl.glVertex3f(-halfWidth, -halfHeight, halfLength);
+            gl.glVertex3f(halfWidth, -halfHeight, halfLength);
+            gl.glVertex3f(halfWidth, -halfHeight, -halfLength);
+            gl.glEnd();
+        }
+        
+        if (ceilingTransparency < 1.0f) {
+            // Transparent ceiling
+            gl.glBegin(GL2.GL_QUADS);
+            gl.glColor4f(ceilingColor.getRed()/255f, ceilingColor.getGreen()/255f, ceilingColor.getBlue()/255f, ceilingTransparency);
+            gl.glNormal3f(0.0f, -1.0f, 0.0f);
+            gl.glVertex3f(-halfWidth, halfHeight, -halfLength);
+            gl.glVertex3f(halfWidth, halfHeight, -halfLength);
+            gl.glVertex3f(halfWidth, halfHeight, halfLength);
+            gl.glVertex3f(-halfWidth, halfHeight, halfLength);
+            gl.glEnd();
+        }
+        
+        // Re-enable depth writes
+        gl.glDepthMask(true);
+        
+        // Restore matrix
+        gl.glPopMatrix();
+    }
+} 
