@@ -2691,4 +2691,1366 @@ public class SoftwareRenderer extends JFrame implements GLEventListener {
         }
     }
 
+       /**
+     * Duplicates the selected model
+     */
+    private void duplicateSelectedModel() {
+        if (selectedModel != null && selectedModelIndex >= 0) {
+            // Create a deep copy of the model
+            Model3D newModel = new Model3D(selectedModel.name + " (copy)");
+
+            // Copy geometry data
+            newModel.vertices.addAll(selectedModel.vertices);
+            newModel.normals.addAll(selectedModel.normals);
+            newModel.textureCoords.addAll(selectedModel.textureCoords);
+
+            // Copy faces
+            for (Face face : selectedModel.faces) {
+                int[] vertexIndices = face.vertexIndices.clone();
+                int[] normalIndices = face.normalIndices.clone();
+                int[] texCoordIndices = face.texCoordIndices.clone();
+
+                newModel.faces.add(new Face(vertexIndices, texCoordIndices, normalIndices, face.materialName));
+            }
+
+            // Copy materials
+            for (Map.Entry<String, Material> entry : selectedModel.materials.entrySet()) {
+                Material originalMat = entry.getValue();
+                Material newMat = new Material(originalMat.name);
+
+                // Copy material properties
+                System.arraycopy(originalMat.ambient, 0, newMat.ambient, 0, 4);
+                System.arraycopy(originalMat.diffuse, 0, newMat.diffuse, 0, 4);
+                System.arraycopy(originalMat.specular, 0, newMat.specular, 0, 4);
+                newMat.shininess = originalMat.shininess;
+
+                newModel.materials.put(entry.getKey(), newMat);
+            }
+
+            // Copy bounding box
+            newModel.minX = selectedModel.minX;
+            newModel.maxX = selectedModel.maxX;
+            newModel.minY = selectedModel.minY;
+            newModel.maxY = selectedModel.maxY;
+            newModel.minZ = selectedModel.minZ;
+            newModel.maxZ = selectedModel.maxZ;
+
+            // Copy position but offset slightly
+            newModel.x = selectedModel.x + 0.5f;
+            newModel.y = selectedModel.y;
+            newModel.z = selectedModel.z + 0.5f;
+            newModel.rotY = selectedModel.rotY;
+            newModel.scale = selectedModel.scale;
+
+            // Copy color settings
+            newModel.useCustomColor = selectedModel.useCustomColor;
+            newModel.customColor = selectedModel.customColor;
+
+            // Add to room
+            roomModels.add(newModel);
+            modelsListModel.addElement(newModel.name);
+
+            // Select the new model
+            modelsList.setSelectedIndex(roomModels.size() - 1);
+
+            refreshDisplay();
+        }
+    }
+
+    /**
+     * Loads an OBJ file into the specified model
+     */
+    public boolean loadModelFromObjFile(Model3D model, String filePath) {
+        try {
+            // Clear model data
+            model.vertices.clear();
+            model.normals.clear();
+            model.textureCoords.clear();
+            model.faces.clear();
+
+            // Reset bounding box
+            model.minX = model.minY = model.minZ = Float.MAX_VALUE;
+            model.maxX = model.maxY = model.maxZ = Float.MIN_VALUE;
+
+            BufferedReader reader = new BufferedReader(new FileReader(filePath));
+            String line;
+            String currentMaterial = null;
+
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+
+                String[] parts = line.split("\\s+");
+                if (parts.length == 0)
+                    continue;
+
+                String type = parts[0];
+
+                if ("v".equals(type)) {
+                    // Vertex
+                    float x = Float.parseFloat(parts[1]);
+                    float y = Float.parseFloat(parts[2]);
+                    float z = Float.parseFloat(parts[3]);
+
+                    model.vertices.add(x);
+                    model.vertices.add(y);
+                    model.vertices.add(z);
+
+                    // Update bounding box
+                    model.minX = Math.min(model.minX, x);
+                    model.maxX = Math.max(model.maxX, x);
+                    model.minY = Math.min(model.minY, y);
+                    model.maxY = Math.max(model.maxY, y);
+                    model.minZ = Math.min(model.minZ, z);
+                    model.maxZ = Math.max(model.maxZ, z);
+
+                } else if ("vn".equals(type)) {
+                    // Normal
+                    float x = Float.parseFloat(parts[1]);
+                    float y = Float.parseFloat(parts[2]);
+                    float z = Float.parseFloat(parts[3]);
+
+                    model.normals.add(x);
+                    model.normals.add(y);
+                    model.normals.add(z);
+
+                } else if ("vt".equals(type)) {
+                    // Texture coordinate
+                    float u = Float.parseFloat(parts[1]);
+                    float v = parts.length > 2 ? Float.parseFloat(parts[2]) : 0.0f;
+
+                    model.textureCoords.add(u);
+                    model.textureCoords.add(v);
+
+                } else if ("f".equals(type)) {
+                    // Face
+                    int[] vertIndices = new int[parts.length - 1];
+                    int[] texIndices = new int[parts.length - 1];
+                    int[] normIndices = new int[parts.length - 1];
+
+                    for (int i = 1; i < parts.length; i++) {
+                        String[] indices = parts[i].split("/");
+
+                        vertIndices[i - 1] = Integer.parseInt(indices[0]) - 1;
+                        texIndices[i - 1] = indices.length > 1 && !indices[1].isEmpty()
+                                ? Integer.parseInt(indices[1]) - 1
+                                : -1;
+                        normIndices[i - 1] = indices.length > 2 ? Integer.parseInt(indices[2]) - 1 : -1;
+                    }
+
+                    model.faces.add(new Face(vertIndices, texIndices, normIndices, currentMaterial));
+
+                } else if ("mtllib".equals(type)) {
+                    // Material library
+                    if (parts.length > 1) {
+                        File objFile = new File(filePath);
+                        File mtlFile = new File(objFile.getParent(), parts[1]);
+                        if (mtlFile.exists()) {
+                            mtlFileText.setText(mtlFile.getAbsolutePath());
+                            loadMtlFile(mtlFile.getAbsolutePath());
+                        }
+                    }
+
+                } else if ("usemtl".equals(type)) {
+                    // Use material
+                    if (parts.length > 1) {
+                        currentMaterial = parts[1];
+                    }
+                }
+            }
+
+            reader.close();
+
+            // Scale model if necessary
+            float modelSize = Math.max(model.maxX - model.minX,
+                    Math.max(model.maxY - model.minY, model.maxZ - model.minZ));
+
+            // If model is too large or too small, auto-scale it
+            if (modelSize > 5.0f || modelSize < 0.1f) {
+                float targetSize = 1.0f; // Target size in meters
+                model.scale = targetSize / modelSize;
+            }
+
+            System.out.println("Loaded model with " + (model.vertices.size() / 3) + " vertices and " +
+                    model.faces.size() + " faces");
+
+            return true;
+
+        } catch (Exception e) {
+            System.err.println("Error loading model from OBJ file: " + e.getMessage());
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * Loads materials for a model from MTL file
+     */
+    private void loadMaterialsForModel(Model3D model, String filePath) {
+        try {
+            model.materials.clear();
+
+            BufferedReader reader = new BufferedReader(new FileReader(filePath));
+            String line;
+
+            Material currentMaterial = null;
+
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+
+                String[] parts = line.split("\\s+");
+                String type = parts[0];
+
+                if ("newmtl".equals(type)) {
+                    // New material
+                    if (parts.length > 1) {
+                        currentMaterial = new Material(parts[1]);
+                        model.materials.put(parts[1], currentMaterial);
+                    }
+
+                } else if (currentMaterial != null) {
+                    if ("Ka".equals(type)) {
+                        // Ambient color
+                        currentMaterial.ambient[0] = Float.parseFloat(parts[1]);
+                        currentMaterial.ambient[1] = Float.parseFloat(parts[2]);
+                        currentMaterial.ambient[2] = Float.parseFloat(parts[3]);
+
+                    } else if ("Kd".equals(type)) {
+                        // Diffuse color
+                        currentMaterial.diffuse[0] = Float.parseFloat(parts[1]);
+                        currentMaterial.diffuse[1] = Float.parseFloat(parts[2]);
+                        currentMaterial.diffuse[2] = Float.parseFloat(parts[3]);
+
+                    } else if ("Ks".equals(type)) {
+                        // Specular color
+                        currentMaterial.specular[0] = Float.parseFloat(parts[1]);
+                        currentMaterial.specular[1] = Float.parseFloat(parts[2]);
+                        currentMaterial.specular[2] = Float.parseFloat(parts[3]);
+
+                    } else if ("Ns".equals(type)) {
+                        // Shininess
+                        currentMaterial.shininess = Float.parseFloat(parts[1]) / 1000.0f * 128.0f;
+                    }
+                }
+            }
+
+            reader.close();
+
+        } catch (IOException e) {
+            System.err.println("Error loading MTL file: " + e.getMessage());
+            e.printStackTrace();
+        } catch (Exception e) {
+            System.err.println("Unexpected error loading MTL: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Handles object dragging with the mouse
+     */
+    private void handleObjectDrag(MouseEvent e) {
+        if (lastMousePosition == null) {
+            lastMousePosition = e.getPoint();
+            return;
+        }
+
+        // Calculate mouse movement in screen space
+        float dx = (e.getX() - lastMousePosition.x) * 0.01f;
+        float dz = (e.getY() - lastMousePosition.y) * 0.01f;
+
+        // Adjust movement based on camera rotation
+        float rotRads = (float) Math.toRadians(rotY);
+        float cosRot = (float) Math.cos(rotRads);
+        float sinRot = (float) Math.sin(rotRads);
+
+        // Apply rotation to the movement
+        float adjustedX = dx * cosRot - dz * sinRot;
+        float adjustedZ = dx * sinRot + dz * cosRot;
+
+        // Update model position
+        selectedModel.x += adjustedX;
+        selectedModel.z += adjustedZ;
+
+        // Update UI spinners
+        modelXSpinner.setValue(Double.valueOf(selectedModel.x));
+        modelZSpinner.setValue(Double.valueOf(selectedModel.z));
+
+        lastMousePosition = e.getPoint();
+        refreshDisplay();
+    }
+
+    /**
+     * Handles keyboard controls for object manipulation
+     */
+    private void handleObjectKeyControl(KeyEvent e) {
+        if (selectedModel == null) {
+            System.out.println("No model selected for keyboard control");
+            return;
+        }
+
+        boolean changed = false;
+        System.out.println("Processing key for object manipulation: " + KeyEvent.getKeyText(e.getKeyCode()));
+
+        switch (e.getKeyCode()) {
+            // Movement with WASD
+            case KeyEvent.VK_W:
+                // Forward (+Z)
+                selectedModel.z += moveSpeed;
+                System.out.println("Model moved forward: " + selectedModel.z);
+                changed = true;
+                break;
+
+            case KeyEvent.VK_S:
+                // Backward (-Z)
+                selectedModel.z -= moveSpeed;
+                System.out.println("Model moved backward: " + selectedModel.z);
+                changed = true;
+                break;
+
+            case KeyEvent.VK_A:
+                // Left (-X)
+                selectedModel.x -= moveSpeed;
+                System.out.println("Model moved left: " + selectedModel.x);
+                changed = true;
+                break;
+
+            case KeyEvent.VK_D:
+                // Right (+X)
+                selectedModel.x += moveSpeed;
+                System.out.println("Model moved right: " + selectedModel.x);
+                changed = true;
+                break;
+
+            // Y-axis movement with Q and E
+            case KeyEvent.VK_Q:
+                // Up (+Y)
+                selectedModel.y += moveSpeed;
+                System.out.println("Model moved up: " + selectedModel.y);
+                changed = true;
+                break;
+
+            case KeyEvent.VK_E:
+                // Down (-Y)
+                selectedModel.y -= moveSpeed;
+                System.out.println("Model moved down: " + selectedModel.y);
+                changed = true;
+                break;
+
+            // Rotation with R and F
+            case KeyEvent.VK_R:
+                // Rotate left
+                selectedModel.rotY += rotationSpeed;
+                if (selectedModel.rotY >= 360.0f)
+                    selectedModel.rotY -= 360.0f;
+                System.out.println("Model rotated left: " + selectedModel.rotY);
+                changed = true;
+                break;
+
+            case KeyEvent.VK_F:
+                // Rotate right
+                selectedModel.rotY -= rotationSpeed;
+                if (selectedModel.rotY < 0.0f)
+                    selectedModel.rotY += 360.0f;
+                System.out.println("Model rotated right: " + selectedModel.rotY);
+                changed = true;
+                break;
+
+            // Object selection with Tab
+            case KeyEvent.VK_TAB:
+                if (!roomModels.isEmpty()) {
+                    // Select next model in the list
+                    int newIndex = (selectedModelIndex + 1) % roomModels.size();
+                    System.out.println("Tab pressed, selecting next model: " + newIndex);
+                    modelsList.setSelectedIndex(newIndex);
+                }
+                break;
+
+            // Delete model with Delete key
+            case KeyEvent.VK_DELETE:
+                System.out.println("Delete pressed, removing selected model");
+                removeSelectedModel();
+                break;
+        }
+
+        if (changed) {
+            // Update UI spinners
+            SwingUtilities.invokeLater(() -> {
+                modelXSpinner.setValue(Double.valueOf(selectedModel.x));
+                modelYSpinner.setValue(Double.valueOf(selectedModel.y));
+                modelZSpinner.setValue(Double.valueOf(selectedModel.z));
+                modelRotationSpinner.setValue(Double.valueOf(selectedModel.rotY));
+            });
+
+            refreshDisplay();
+        }
+    }
+
+    /**
+     * Opens the Model Manager window
+     */
+    private void openModelManager() {
+        // Create a simple dialog instead of using ModelManagerWindow
+        JOptionPane.showMessageDialog(this,
+                "Model Manager functionality not implemented in this version.",
+                "Model Manager",
+                JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Renders a 2D grid for the floor in top-down view
+     */
+    private void renderGrid(GL2 gl) {
+        // Save current state
+        gl.glPushMatrix();
+        gl.glPushAttrib(GL2.GL_ENABLE_BIT);
+
+        // Set up line drawing
+        gl.glDisable(GL2.GL_LIGHTING);
+        gl.glDisable(GL.GL_DEPTH_TEST);
+        gl.glEnable(GL.GL_BLEND);
+        gl.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA);
+
+        // Use a thin line for the grid
+        gl.glLineWidth(1.0f);
+
+        // Draw grid with light gray color
+        gl.glColor4f(0.7f, 0.7f, 0.7f, 0.5f);
+
+        // Calculate room dimensions
+        float halfWidth = roomWidth / 2.0f;
+        float halfLength = roomLength / 2.0f;
+        float floorY = -roomHeight / 2.0f;
+
+        // Grid cell size (in meters)
+        float gridSize = 0.5f; // 0.5m grid
+
+        // Draw grid lines along the X axis
+        gl.glBegin(GL.GL_LINES);
+        for (float x = -halfWidth; x <= halfWidth + 0.01f; x += gridSize) {
+            gl.glVertex3f(x, floorY, -halfLength);
+            gl.glVertex3f(x, floorY, halfLength);
+        }
+
+        // Draw grid lines along the Z axis
+        for (float z = -halfLength; z <= halfLength + 0.01f; z += gridSize) {
+            gl.glVertex3f(-halfWidth, floorY, z);
+            gl.glVertex3f(halfWidth, floorY, z);
+        }
+        gl.glEnd();
+
+        // Draw a heavier border around the room perimeter
+        gl.glLineWidth(2.0f);
+        gl.glColor4f(0.4f, 0.4f, 0.4f, 0.8f);
+        gl.glBegin(GL.GL_LINE_LOOP);
+        gl.glVertex3f(-halfWidth, floorY, -halfLength);
+        gl.glVertex3f(halfWidth, floorY, -halfLength);
+        gl.glVertex3f(halfWidth, floorY, halfLength);
+        gl.glVertex3f(-halfWidth, floorY, halfLength);
+        gl.glEnd();
+
+        // Add labels/markers at 1m intervals along the major axes
+        renderGridMarkers(gl, halfWidth, halfLength, floorY);
+
+        // Restore state
+        gl.glPopAttrib();
+        gl.glPopMatrix();
+    }
+
+    /**
+     * Renders markers/labels on the grid at 1m intervals
+     */
+    private void renderGridMarkers(GL2 gl, float halfWidth, float halfLength, float floorY) {
+        // Size of the marker crosses
+        float markerSize = 0.05f;
+
+        // Draw marker crosses at 1m intervals
+        gl.glLineWidth(2.0f);
+        gl.glColor4f(0.3f, 0.3f, 0.3f, 0.7f);
+        gl.glBegin(GL.GL_LINES);
+
+        // Along the X axis
+        for (int i = (int) (-halfWidth); i <= (int) (halfWidth); i++) {
+            if (i == 0)
+                continue; // Skip the origin as it's covered by the Z markers
+
+            // Horizontal line
+            gl.glVertex3f(i, floorY, -markerSize);
+            gl.glVertex3f(i, floorY, markerSize);
+        }
+
+        // Along the Z axis
+        for (int i = (int) (-halfLength); i <= (int) (halfLength); i++) {
+            if (i == 0)
+                continue; // Skip the origin
+
+            // Vertical line
+            gl.glVertex3f(-markerSize, floorY, i);
+            gl.glVertex3f(markerSize, floorY, i);
+        }
+
+        // Origin marker (special cross)
+        gl.glColor4f(0.8f, 0.2f, 0.2f, 0.9f); // Red for origin
+        gl.glVertex3f(-markerSize * 2, floorY, 0);
+        gl.glVertex3f(markerSize * 2, floorY, 0);
+        gl.glVertex3f(0, floorY, -markerSize * 2);
+        gl.glVertex3f(0, floorY, markerSize * 2);
+
+        gl.glEnd();
+    }
+
+    /**
+     * Saves the current room configuration to a file
+     */
+    private void saveRoom() {
+        if (currentRoomFile != null) {
+            saveRoomToFile(currentRoomFile);
+        } else {
+            saveRoomAs();
+        }
+    }
+
+    /**
+     * Saves the room configuration to a new file
+     */
+    private void saveRoomAs() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setFileFilter(new FileNameExtensionFilter("Room Files (*.room)", "room"));
+
+        if (fileChooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+
+            // Ensure the file has the .room extension
+            if (!file.getPath().toLowerCase().endsWith(".room")) {
+                file = new File(file.getPath() + ".room");
+            }
+
+            currentRoomFile = file;
+            saveRoomToFile(file);
+        }
+    }
+
+    /**
+     * Saves room configuration to the specified file
+     */
+    private void saveRoomToFile(File file) {
+        try (java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(
+                new java.io.FileOutputStream(file))) {
+
+            // Save room properties
+            RoomData roomData = new RoomData();
+            roomData.width = roomWidth;
+            roomData.height = roomHeight;
+            roomData.length = roomLength;
+            roomData.wallColor = wallColor;
+            roomData.floorColor = floorColor;
+            roomData.ceilingColor = ceilingColor;
+            roomData.wallTransparency = wallTransparency;
+            roomData.floorTransparency = floorTransparency;
+            roomData.ceilingTransparency = ceilingTransparency;
+
+            // Save models data
+            for (Model3D model : roomModels) {
+                ModelData modelData = new ModelData();
+                modelData.name = model.name;
+                modelData.x = model.x;
+                modelData.y = model.y;
+                modelData.z = model.z;
+                modelData.rotY = model.rotY;
+                modelData.scale = model.scale;
+                modelData.useCustomColor = model.useCustomColor;
+                modelData.customColor = model.customColor;
+
+                // Save vertices, normals, texCoords
+                modelData.vertices = new ArrayList<>(model.vertices);
+                modelData.normals = new ArrayList<>(model.normals);
+                modelData.textureCoords = new ArrayList<>(model.textureCoords);
+
+                // Save faces
+                for (Face face : model.faces) {
+                    FaceData faceData = new FaceData();
+                    faceData.vertexIndices = face.vertexIndices.clone();
+                    faceData.normalIndices = face.normalIndices.clone();
+                    faceData.texCoordIndices = face.texCoordIndices.clone();
+                    faceData.materialName = face.materialName;
+                    modelData.faces.add(faceData);
+                }
+
+                // Save materials
+                for (Map.Entry<String, Material> entry : model.materials.entrySet()) {
+                    MaterialData materialData = new MaterialData();
+                    Material material = entry.getValue();
+                    materialData.name = material.name;
+                    materialData.ambient = material.ambient.clone();
+                    materialData.diffuse = material.diffuse.clone();
+                    materialData.specular = material.specular.clone();
+                    materialData.shininess = material.shininess;
+                    modelData.materials.put(entry.getKey(), materialData);
+                }
+
+                // Save bounding box
+                modelData.minX = model.minX;
+                modelData.maxX = model.maxX;
+                modelData.minY = model.minY;
+                modelData.maxY = model.maxY;
+                modelData.minZ = model.minZ;
+                modelData.maxZ = model.maxZ;
+
+                roomData.models.add(modelData);
+            }
+
+            // Write the room data to file
+            out.writeObject(roomData);
+
+            JOptionPane.showMessageDialog(this,
+                    "Room saved successfully to " + file.getName(),
+                    "Room Saved", JOptionPane.INFORMATION_MESSAGE);
+
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this,
+                    "Error saving room: " + e.getMessage(),
+                    "Save Error", JOptionPane.ERROR_MESSAGE);
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Loads a room configuration from a file
+     */
+    private void loadRoom() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setFileFilter(new FileNameExtensionFilter("Room Files (*.room)", "room"));
+
+        if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+            File file = fileChooser.getSelectedFile();
+            loadRoomFromFile(file);
+        }
+    }
+
+    /**
+     * Loads room configuration from the specified file
+     */
+    private void loadRoomFromFile(File file) {
+        try (java.io.ObjectInputStream in = new java.io.ObjectInputStream(
+                new java.io.FileInputStream(file))) {
+
+            // Read room data
+            RoomData roomData = (RoomData) in.readObject();
+
+            // Set room properties
+            roomWidth = roomData.width;
+            roomHeight = roomData.height;
+            roomLength = roomData.length;
+            wallColor = roomData.wallColor;
+            floorColor = roomData.floorColor;
+            ceilingColor = roomData.ceilingColor;
+            wallTransparency = roomData.wallTransparency;
+            floorTransparency = roomData.floorTransparency;
+            ceilingTransparency = roomData.ceilingTransparency;
+
+            // Update UI controls
+            roomWidthSpinner.setValue(Double.valueOf(roomWidth));
+            roomHeightSpinner.setValue(Double.valueOf(roomHeight));
+            roomLengthSpinner.setValue(Double.valueOf(roomLength));
+            wallColorButton.setBackground(wallColor);
+            floorColorButton.setBackground(floorColor);
+            ceilingColorButton.setBackground(ceilingColor);
+            wallTransparencySpinner.setValue(Double.valueOf(wallTransparency));
+            floorTransparencySpinner.setValue(Double.valueOf(floorTransparency));
+            ceilingTransparencySpinner.setValue(Double.valueOf(ceilingTransparency));
+
+            // Clear existing models
+            roomModels.clear();
+            modelsListModel.clear();
+
+            // Load models
+            for (ModelData modelData : roomData.models) {
+                Model3D model = new Model3D(modelData.name);
+
+                // Set position, rotation, and scale
+                model.x = modelData.x;
+                model.y = modelData.y;
+                model.z = modelData.z;
+                model.rotY = modelData.rotY;
+                model.scale = modelData.scale;
+
+                // Set color info
+                model.useCustomColor = modelData.useCustomColor;
+                model.customColor = modelData.customColor;
+
+                // Load vertices, normals, texCoords
+                model.vertices.addAll(modelData.vertices);
+                model.normals.addAll(modelData.normals);
+                model.textureCoords.addAll(modelData.textureCoords);
+
+                // Load faces
+                for (FaceData faceData : modelData.faces) {
+                    Face face = new Face(
+                            faceData.vertexIndices,
+                            faceData.texCoordIndices,
+                            faceData.normalIndices,
+                            faceData.materialName);
+                    model.faces.add(face);
+                }
+
+                // Load materials
+                for (Map.Entry<String, MaterialData> entry : modelData.materials.entrySet()) {
+                    MaterialData materialData = entry.getValue();
+                    Material material = new Material(materialData.name);
+                    material.ambient = materialData.ambient.clone();
+                    material.diffuse = materialData.diffuse.clone();
+                    material.specular = materialData.specular.clone();
+                    material.shininess = materialData.shininess;
+                    model.materials.put(entry.getKey(), material);
+                }
+
+                // Set bounding box
+                model.minX = modelData.minX;
+                model.maxX = modelData.maxX;
+                model.minY = modelData.minY;
+                model.maxY = modelData.maxY;
+                model.minZ = modelData.minZ;
+                model.maxZ = modelData.maxZ;
+
+                // Add model to room
+                roomModels.add(model);
+                modelsListModel.addElement(model.name);
+            }
+
+            // Make sure room is shown
+            showRoom = true;
+            showRoomCheckbox.setSelected(true);
+
+            // Update menu item if it exists
+            for (int i = 0; i < getJMenuBar().getMenu(2).getItemCount(); i++) {
+                if (getJMenuBar().getMenu(2).getItem(i) instanceof JCheckBoxMenuItem &&
+                        "Show Room".equals(getJMenuBar().getMenu(2).getItem(i).getText())) {
+                    ((JCheckBoxMenuItem) getJMenuBar().getMenu(2).getItem(i)).setSelected(true);
+                    break;
+                }
+            }
+
+            // Save current room file reference
+            currentRoomFile = file;
+
+            // Select first model if available
+            if (!roomModels.isEmpty()) {
+                modelsList.setSelectedIndex(0);
+            }
+
+            JOptionPane.showMessageDialog(this,
+                    "Room loaded successfully from " + file.getName(),
+                    "Room Loaded", JOptionPane.INFORMATION_MESSAGE);
+
+            refreshDisplay();
+
+        } catch (IOException | ClassNotFoundException e) {
+            JOptionPane.showMessageDialog(this,
+                    "Error loading room: " + e.getMessage(),
+                    "Load Error", JOptionPane.ERROR_MESSAGE);
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Serializable class for saving room data
+     */
+    private static class RoomData implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+
+        float width, height, length;
+        Color wallColor, floorColor, ceilingColor;
+        float wallTransparency, floorTransparency, ceilingTransparency;
+        List<ModelData> models = new ArrayList<>();
+    }
+
+    /**
+     * Serializable class for saving model data
+     */
+    private static class ModelData implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+
+        String name;
+        float x, y, z;
+        float rotY;
+        float scale;
+        boolean useCustomColor;
+        Color customColor;
+
+        List<Float> vertices = new ArrayList<>();
+        List<Float> normals = new ArrayList<>();
+        List<Float> textureCoords = new ArrayList<>();
+        List<FaceData> faces = new ArrayList<>();
+        Map<String, MaterialData> materials = new HashMap<>();
+
+        float minX, maxX, minY, maxY, minZ, maxZ;
+    }
+
+    /**
+     * Serializable class for saving face data
+     */
+    private static class FaceData implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+
+        int[] vertexIndices;
+        int[] normalIndices;
+        int[] texCoordIndices;
+        String materialName;
+    }
+
+    /**
+     * Serializable class for saving material data
+     */
+    private static class MaterialData implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
+
+        String name;
+        float[] ambient;
+        float[] diffuse;
+        float[] specular;
+        float shininess;
+    }
+
+    /**
+     * Adds the currently loaded model to the model library
+     */
+    private void addCurrentModelToLibrary() {
+        // Check if a model is loaded
+        if (vertices.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "No model is currently loaded. Please load a model first.",
+                    "No Model Loaded", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        // Get model name from user
+        String modelName = JOptionPane.showInputDialog(this,
+                "Enter a name for the model:",
+                objFileText.getText().substring(objFileText.getText().lastIndexOf(File.separator) + 1));
+
+        if (modelName == null || modelName.trim().isEmpty()) {
+            return; // User cancelled or entered empty name
+        }
+
+        // Create a new model
+        Model3D model = new Model3D(modelName);
+
+        // Copy vertices, normals, texture coords
+        model.vertices.addAll(vertices);
+        model.normals.addAll(normals);
+        model.textureCoords.addAll(textureCoords);
+
+        // Copy faces
+        for (Face face : faces) {
+            int[] vertexIndices = face.vertexIndices.clone();
+            int[] normalIndices = face.normalIndices.clone();
+            int[] texCoordIndices = face.texCoordIndices.clone();
+
+            model.faces.add(new Face(vertexIndices, texCoordIndices, normalIndices, face.materialName));
+        }
+
+        // Copy materials
+        for (Map.Entry<String, Material> entry : materials.entrySet()) {
+            Material originalMat = entry.getValue();
+            Material newMat = new Material(originalMat.name);
+
+            // Copy material properties
+            System.arraycopy(originalMat.ambient, 0, newMat.ambient, 0, 4);
+            System.arraycopy(originalMat.diffuse, 0, newMat.diffuse, 0, 4);
+            System.arraycopy(originalMat.specular, 0, newMat.specular, 0, 4);
+            newMat.shininess = originalMat.shininess;
+
+            model.materials.put(entry.getKey(), newMat);
+        }
+
+        // Copy bounding box
+        model.minX = minX;
+        model.maxX = maxX;
+        model.minY = minY;
+        model.maxY = maxY;
+        model.minZ = minZ;
+        model.maxZ = maxZ;
+
+        // Add to library
+        modelLibrary.add(model);
+
+        // Save library to disk
+        saveModelLibrary();
+
+        JOptionPane.showMessageDialog(this,
+                "Model '" + modelName + "' added to library successfully.",
+                "Model Added", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Opens the model library browser
+     */
+    private void openModelLibrary() {
+        // Load library if not already loaded
+        if (modelLibrary.isEmpty()) {
+            loadModelLibrary();
+        }
+
+        if (modelLibrary.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    "The model library is empty. Add models to the library first.",
+                    "Empty Library", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        // Create model list for the dialog
+        DefaultListModel<String> listModel = new DefaultListModel<>();
+        for (Model3D model : modelLibrary) {
+            listModel.addElement(model.name);
+        }
+
+        JList<String> modelList = new JList<>(listModel);
+        modelList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        modelList.setSelectedIndex(0);
+
+        JScrollPane scrollPane = new JScrollPane(modelList);
+        scrollPane.setPreferredSize(new Dimension(300, 200));
+
+        // Create buttons
+        JButton addToRoomButton = new JButton("Add to Room");
+        JButton viewModelButton = new JButton("View Model");
+        JButton removeModelButton = new JButton("Remove from Library");
+
+        // Create button panel
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 10, 10));
+        buttonPanel.add(viewModelButton);
+        buttonPanel.add(addToRoomButton);
+        buttonPanel.add(removeModelButton);
+
+        // Create main panel
+        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        mainPanel.add(new JLabel("Select a model from the library:"), BorderLayout.NORTH);
+        mainPanel.add(scrollPane, BorderLayout.CENTER);
+        mainPanel.add(buttonPanel, BorderLayout.SOUTH);
+
+        // Create preview panel for 3D model preview
+        JPanel previewPanel = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+
+                // Draw background
+                g.setColor(new Color(240, 240, 240));
+                g.fillRect(0, 0, getWidth(), getHeight());
+
+                // Draw selected model if any
+                int selectedIndex = modelList.getSelectedIndex();
+                if (selectedIndex >= 0 && selectedIndex < modelLibrary.size()) {
+                    Model3D model = modelLibrary.get(selectedIndex);
+
+                    // Draw model name
+                    g.setColor(Color.BLACK);
+                    g.setFont(new Font("SansSerif", Font.BOLD, 14));
+                    g.drawString(model.name, 10, 20);
+
+                    // Draw model statistics
+                    g.setFont(new Font("SansSerif", Font.PLAIN, 12));
+                    g.drawString("Vertices: " + (model.vertices.size() / 3), 10, 40);
+                    g.drawString("Faces: " + model.faces.size(), 10, 55);
+
+                    // Draw wireframe preview (simplified)
+                    g.setColor(new Color(0, 0, 150));
+                    int centerX = getWidth() / 2;
+                    int centerY = getHeight() / 2;
+
+                    // Draw a cube as placeholder
+                    int size = 50;
+                    g.drawRect(centerX - size, centerY - size, size * 2, size * 2);
+
+                    // Draw 3D cube lines (simplified)
+                    g.drawLine(centerX - size, centerY - size, centerX - size / 2, centerY - size - size / 2);
+                    g.drawLine(centerX + size, centerY - size, centerX + size + size / 2, centerY - size - size / 2);
+                    g.drawLine(centerX - size, centerY + size, centerX - size / 2, centerY + size - size / 2);
+                    g.drawLine(centerX + size, centerY + size, centerX + size + size / 2, centerY + size - size / 2);
+
+                    g.drawLine(centerX - size / 2, centerY - size - size / 2, centerX + size + size / 2,
+                            centerY - size - size / 2);
+                    g.drawLine(centerX - size / 2, centerY + size - size / 2, centerX + size + size / 2,
+                            centerY + size - size / 2);
+                    g.drawLine(centerX - size / 2, centerY - size - size / 2, centerX - size / 2,
+                            centerY + size - size / 2);
+                    g.drawLine(centerX + size + size / 2, centerY - size - size / 2, centerX + size + size / 2,
+                            centerY + size - size / 2);
+                }
+            }
+        };
+        previewPanel.setPreferredSize(new Dimension(200, 200));
+        previewPanel.setBorder(BorderFactory.createTitledBorder("Preview"));
+
+        // Add selection listener to update preview
+        modelList.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                previewPanel.repaint();
+            }
+        });
+
+        // Create dialog layout
+        JPanel dialogPanel = new JPanel(new BorderLayout(10, 10));
+        dialogPanel.add(mainPanel, BorderLayout.CENTER);
+        dialogPanel.add(previewPanel, BorderLayout.EAST);
+
+        // Create dialog
+        JDialog dialog = new JDialog(this, "Model Library", true);
+        dialog.setContentPane(dialogPanel);
+
+        // Button handlers
+        viewModelButton.addActionListener(e -> {
+            int selectedIndex = modelList.getSelectedIndex();
+            if (selectedIndex >= 0) {
+                // Load model into main viewer
+                loadModelFromLibrary(selectedIndex);
+                dialog.dispose();
+            }
+        });
+
+        addToRoomButton.addActionListener(e -> {
+            int selectedIndex = modelList.getSelectedIndex();
+            if (selectedIndex >= 0) {
+                // Add model to room
+                addModelFromLibraryToRoom(selectedIndex);
+                dialog.dispose();
+            }
+        });
+
+        removeModelButton.addActionListener(e -> {
+            int selectedIndex = modelList.getSelectedIndex();
+            if (selectedIndex >= 0) {
+                // Confirm deletion
+                int result = JOptionPane.showConfirmDialog(
+                        dialog,
+                        "Are you sure you want to remove '" + modelLibrary.get(selectedIndex).name
+                                + "' from the library?",
+                        "Confirm Removal",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.WARNING_MESSAGE);
+
+                if (result == JOptionPane.YES_OPTION) {
+                    // Remove from library
+                    modelLibrary.remove(selectedIndex);
+                    listModel.remove(selectedIndex);
+
+                    // Save updated library
+                    saveModelLibrary();
+
+                    // Update preview
+                    previewPanel.repaint();
+                }
+            }
+        });
+
+        // Finalize dialog
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+    }
+
+    /**
+     * Loads the selected model from library into the main viewer
+     */
+    private void loadModelFromLibrary(int index) {
+        if (index < 0 || index >= modelLibrary.size()) {
+            return;
+        }
+
+        Model3D libraryModel = modelLibrary.get(index);
+
+        // Clear current model
+        vertices.clear();
+        normals.clear();
+        textureCoords.clear();
+        faces.clear();
+        materials.clear();
+
+        // Copy from library model
+        vertices.addAll(libraryModel.vertices);
+        normals.addAll(libraryModel.normals);
+        textureCoords.addAll(libraryModel.textureCoords);
+
+        // Copy faces
+        for (Face face : libraryModel.faces) {
+            int[] vertexIndices = face.vertexIndices.clone();
+            int[] normalIndices = face.normalIndices.clone();
+            int[] texCoordIndices = face.texCoordIndices.clone();
+
+            faces.add(new Face(vertexIndices, texCoordIndices, normalIndices, face.materialName));
+        }
+
+        // Copy materials
+        for (Map.Entry<String, Material> entry : libraryModel.materials.entrySet()) {
+            Material originalMat = entry.getValue();
+            Material newMat = new Material(originalMat.name);
+
+            // Copy material properties
+            System.arraycopy(originalMat.ambient, 0, newMat.ambient, 0, 4);
+            System.arraycopy(originalMat.diffuse, 0, newMat.diffuse, 0, 4);
+            System.arraycopy(originalMat.specular, 0, newMat.specular, 0, 4);
+            newMat.shininess = originalMat.shininess;
+
+            materials.put(entry.getKey(), newMat);
+        }
+
+        // Copy bounding box
+        minX = libraryModel.minX;
+        maxX = libraryModel.maxX;
+        minY = libraryModel.minY;
+        maxY = libraryModel.maxY;
+        minZ = libraryModel.minZ;
+        maxZ = libraryModel.maxZ;
+
+        // Update UI
+        objFileText.setText("[Library] " + libraryModel.name);
+
+        // Refresh display
+        refreshDisplay();
+
+        JOptionPane.showMessageDialog(this,
+                "Model '" + libraryModel.name + "' loaded from library successfully.",
+                "Model Loaded", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Adds a model from the library directly to the room
+     */
+    private void addModelFromLibraryToRoom(int index) {
+        if (index < 0 || index >= modelLibrary.size()) {
+            return;
+        }
+
+        Model3D libraryModel = modelLibrary.get(index);
+
+        // Create a new model
+        Model3D newModel = new Model3D(libraryModel.name);
+
+        // Copy from library model
+        newModel.vertices.addAll(libraryModel.vertices);
+        newModel.normals.addAll(libraryModel.normals);
+        newModel.textureCoords.addAll(libraryModel.textureCoords);
+
+        // Copy faces
+        for (Face face : libraryModel.faces) {
+            int[] vertexIndices = face.vertexIndices.clone();
+            int[] normalIndices = face.normalIndices.clone();
+            int[] texCoordIndices = face.texCoordIndices.clone();
+
+            newModel.faces.add(new Face(vertexIndices, texCoordIndices, normalIndices, face.materialName));
+        }
+
+        // Copy materials
+        for (Map.Entry<String, Material> entry : libraryModel.materials.entrySet()) {
+            Material originalMat = entry.getValue();
+            Material newMat = new Material(originalMat.name);
+
+            // Copy material properties
+            System.arraycopy(originalMat.ambient, 0, newMat.ambient, 0, 4);
+            System.arraycopy(originalMat.diffuse, 0, newMat.diffuse, 0, 4);
+            System.arraycopy(originalMat.specular, 0, newMat.specular, 0, 4);
+            newMat.shininess = originalMat.shininess;
+
+            newModel.materials.put(entry.getKey(), newMat);
+        }
+
+        // Copy bounding box
+        newModel.minX = libraryModel.minX;
+        newModel.maxX = libraryModel.maxX;
+        newModel.minY = libraryModel.minY;
+        newModel.maxY = libraryModel.maxY;
+        newModel.minZ = libraryModel.minZ;
+        newModel.maxZ = libraryModel.maxZ;
+
+        // Position model in room
+        newModel.y = -roomHeight / 2 + 0.001f; // Place just above floor
+
+        // Add to models list
+        roomModels.add(newModel);
+        modelsListModel.addElement(newModel.name);
+
+        // Select the new model
+        int newIndex = roomModels.size() - 1;
+        modelsList.setSelectedIndex(newIndex);
+
+        // Make sure room is visible
+        if (!showRoom) {
+            showRoom = true;
+            showRoomCheckbox.setSelected(true);
+            // Update menu item if it exists
+            for (int i = 0; i < getJMenuBar().getMenu(2).getItemCount(); i++) {
+                if (getJMenuBar().getMenu(2).getItem(i) instanceof JCheckBoxMenuItem &&
+                        "Show Room".equals(getJMenuBar().getMenu(2).getItem(i).getText())) {
+                    ((JCheckBoxMenuItem) getJMenuBar().getMenu(2).getItem(i)).setSelected(true);
+                    break;
+                }
+            }
+        }
+
+        refreshDisplay();
+
+        JOptionPane.showMessageDialog(this,
+                "Model '" + libraryModel.name + "' added to room from library.",
+                "Model Added", JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    /**
+     * Saves the model library to disk
+     */
+    private void saveModelLibrary() {
+        try (java.io.ObjectOutputStream out = new java.io.ObjectOutputStream(
+                new java.io.FileOutputStream(modelLibraryFile))) {
+
+            // Save model library
+            out.writeObject(modelLibrary.size()); // Write count first
+
+            // Save each model
+            for (Model3D model : modelLibrary) {
+                // Create model data for serialization
+                ModelData modelData = new ModelData();
+                modelData.name = model.name;
+                modelData.x = model.x;
+                modelData.y = model.y;
+                modelData.z = model.z;
+                modelData.rotY = model.rotY;
+                modelData.scale = model.scale;
+                modelData.useCustomColor = model.useCustomColor;
+                modelData.customColor = model.customColor;
+
+                // Save vertices, normals, texCoords
+                modelData.vertices = new ArrayList<>(model.vertices);
+                modelData.normals = new ArrayList<>(model.normals);
+                modelData.textureCoords = new ArrayList<>(model.textureCoords);
+
+                // Save faces
+                for (Face face : model.faces) {
+                    FaceData faceData = new FaceData();
+                    faceData.vertexIndices = face.vertexIndices.clone();
+                    faceData.normalIndices = face.normalIndices.clone();
+                    faceData.texCoordIndices = face.texCoordIndices.clone();
+                    faceData.materialName = face.materialName;
+                    modelData.faces.add(faceData);
+                }
+
+                // Save materials
+                for (Map.Entry<String, Material> entry : model.materials.entrySet()) {
+                    MaterialData materialData = new MaterialData();
+                    Material material = entry.getValue();
+                    materialData.name = material.name;
+                    materialData.ambient = material.ambient.clone();
+                    materialData.diffuse = material.diffuse.clone();
+                    materialData.specular = material.specular.clone();
+                    materialData.shininess = material.shininess;
+                    modelData.materials.put(entry.getKey(), materialData);
+                }
+
+                // Save bounding box
+                modelData.minX = model.minX;
+                modelData.maxX = model.maxX;
+                modelData.minY = model.minY;
+                modelData.maxY = model.maxY;
+                modelData.minZ = model.minZ;
+                modelData.maxZ = model.maxZ;
+
+                // Write model data to file
+                out.writeObject(modelData);
+            }
+
+            System.out.println("Saved " + modelLibrary.size() + " models to library");
+
+        } catch (IOException e) {
+            System.err.println("Error saving model library: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Loads the model library from disk
+     */
+    private void loadModelLibrary() {
+        // Clear existing library
+        modelLibrary.clear();
+
+        // Don't try to load if file doesn't exist
+        if (!modelLibraryFile.exists()) {
+            System.out.println("Model library file does not exist, starting with empty library");
+            return;
+        }
+
+        try (java.io.ObjectInputStream in = new java.io.ObjectInputStream(
+                new java.io.FileInputStream(modelLibraryFile))) {
+
+            // Read model count
+            int modelCount = (Integer) in.readObject();
+
+            // Read each model
+            for (int i = 0; i < modelCount; i++) {
+                ModelData modelData = (ModelData) in.readObject();
+                Model3D model = new Model3D(modelData.name);
+
+                // Set position, rotation, and scale
+                model.x = modelData.x;
+                model.y = modelData.y;
+                model.z = modelData.z;
+                model.rotY = modelData.rotY;
+                model.scale = modelData.scale;
+
+                // Set color info
+                model.useCustomColor = modelData.useCustomColor;
+                model.customColor = modelData.customColor;
+
+                // Load vertices, normals, texCoords
+                model.vertices.addAll(modelData.vertices);
+                model.normals.addAll(modelData.normals);
+                model.textureCoords.addAll(modelData.textureCoords);
+
+                // Load faces
+                for (FaceData faceData : modelData.faces) {
+                    Face face = new Face(
+                            faceData.vertexIndices,
+                            faceData.texCoordIndices,
+                            faceData.normalIndices,
+                            faceData.materialName);
+                    model.faces.add(face);
+                }
+
+                // Load materials
+                for (Map.Entry<String, MaterialData> entry : modelData.materials.entrySet()) {
+                    MaterialData materialData = entry.getValue();
+                    Material material = new Material(materialData.name);
+                    material.ambient = materialData.ambient.clone();
+                    material.diffuse = materialData.diffuse.clone();
+                    material.specular = materialData.specular.clone();
+                    material.shininess = materialData.shininess;
+                    model.materials.put(entry.getKey(), material);
+                }
+
+                // Set bounding box
+                model.minX = modelData.minX;
+                model.maxX = modelData.maxX;
+                model.minY = modelData.minY;
+                model.maxY = modelData.maxY;
+                model.minZ = modelData.minZ;
+                model.maxZ = modelData.maxZ;
+
+                // Add to library
+                modelLibrary.add(model);
+            }
+
+            System.out.println("Loaded " + modelLibrary.size() + " models from library");
+
+        } catch (IOException | ClassNotFoundException e) {
+            System.err.println("Error loading model library: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
 }
