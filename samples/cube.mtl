@@ -1,0 +1,37 @@
+# Cube MTL file for testing
+
+newmtl red
+Ka 0.2 0.0 0.0
+Kd 1.0 0.0 0.0
+Ks 1.0 1.0 1.0
+Ns 100.0
+
+newmtl green
+Ka 0.0 0.2 0.0
+Kd 0.0 1.0 0.0
+Ks 1.0 1.0 1.0
+Ns 100.0
+
+newmtl blue
+Ka 0.0 0.0 0.2
+Kd 0.0 0.0 1.0
+Ks 1.0 1.0 1.0
+Ns 100.0
+
+newmtl yellow
+Ka 0.2 0.2 0.0
+Kd 1.0 1.0 0.0
+Ks 1.0 1.0 1.0
+Ns 100.0
+
+newmtl cyan
+Ka 0.0 0.2 0.2
+Kd 0.0 1.0 1.0
+Ks 1.0 1.0 1.0
+Ns 100.0
+
+newmtl magenta
+Ka 0.2 0.0 0.2
+Kd 1.0 0.0 1.0
+Ks 1.0 1.0 1.0
+Ns 100.0 
